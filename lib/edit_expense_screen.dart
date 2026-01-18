@@ -8,35 +8,31 @@ import 'local_db.dart';
 import 'client_store.dart';
 import 'report_store.dart';
 
-class AddExpenseScreen extends StatefulWidget {
-  const AddExpenseScreen({super.key});
+class EditExpenseScreen extends StatefulWidget {
+  final Expense expense;
+  const EditExpenseScreen({super.key, required this.expense});
 
   @override
-  State<AddExpenseScreen> createState() => _AddExpenseScreenState();
+  State<EditExpenseScreen> createState() => _EditExpenseScreenState();
 }
 
-class _AddExpenseScreenState extends State<AddExpenseScreen> {
+class _EditExpenseScreenState extends State<EditExpenseScreen> {
   final _formKey = GlobalKey<FormState>();
 
   File? _receiptFile;
   final ImagePicker _picker = ImagePicker();
 
-  final _vendorCtrl = TextEditingController();
-  final _amountCtrl = TextEditingController();
+  late TextEditingController _vendorCtrl;
+  late TextEditingController _amountCtrl;
 
-  DateTime _date = DateTime.now();
-  String _currency = "EUR";
-  String _type = "Business";
-  String _category = "Travel";
+  late DateTime _date;
+  late String _currency;
+  late String _type;
+  late String _category;
+  late String _scope;
 
-  // NEW: Professional / Private
-  String _scope = "Professional";
-
-  // Selected client (from clients table)
   String? _clientId;
   String? _clientName;
-
-  // Selected report (Professional only)
   String? _reportId;
   String? _reportName;
 
@@ -57,16 +53,33 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    
+    // Initialize with existing expense data
+    _vendorCtrl = TextEditingController(text: widget.expense.vendor);
+    _amountCtrl = TextEditingController(text: widget.expense.amount.toString());
+    _date = widget.expense.date;
+    _currency = widget.expense.currency;
+    _type = widget.expense.type;
+    _category = widget.expense.category;
+    _scope = widget.expense.scope;
+    _clientName = widget.expense.client;
+    _reportId = widget.expense.reportId;
+    _reportName = widget.expense.reportName;
+    
+    if (widget.expense.receiptPath != null) {
+      _receiptFile = File(widget.expense.receiptPath!);
+    }
+    
+    _loadLists();
+  }
+
+  @override
   void dispose() {
     _vendorCtrl.dispose();
     _amountCtrl.dispose();
     super.dispose();
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _loadLists();
   }
 
   Future<void> _loadLists() async {
@@ -74,23 +87,21 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
     await clientStore.load(_scope);
 
-    if (clientStore.items.isNotEmpty) {
+    // Try to find the current client
+    if (_clientName != null) {
+      final matchingClient = clientStore.items.where((c) => c.name == _clientName).firstOrNull;
+      if (matchingClient != null) {
+        _clientId = matchingClient.id;
+      }
+    }
+
+    if (_clientId == null && clientStore.items.isNotEmpty) {
       _clientId = clientStore.items.first.id;
       _clientName = clientStore.items.first.name;
+    }
 
-      if (_scope == "Professional") {
-        await reportStore.loadDraftsForClient(_clientId!);
-        if (reportStore.drafts.isNotEmpty) {
-          _reportId = reportStore.drafts.first.id;
-          _reportName = reportStore.drafts.first.name;
-        } else {
-          _reportId = null;
-          _reportName = null;
-        }
-      } else {
-        _reportId = null;
-        _reportName = null;
-      }
+    if (_scope == "Professional" && _clientId != null) {
+      await reportStore.loadDraftsForClient(_clientId!);
     }
 
     if (mounted) setState(() => _loadedLists = true);
@@ -193,7 +204,6 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       return;
     }
 
-    // Professional requires a report
     if (_scope == "Professional" && (_reportId == null || _reportName == null)) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Select or create a report")));
       return;
@@ -201,46 +211,52 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
     final amount = double.parse(_amountCtrl.text.replaceAll(',', '.'));
 
-    final e = Expense(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      date: _date,
-      vendor: _vendorCtrl.text.trim(),
-      category: _category,
-      client: _clientName!,
-      type: _type,
-      scope: _scope,
-      currency: _currency,
-      amount: amount,
-      receiptPath: _receiptFile?.path,
-      reportId: _scope == "Professional" ? _reportId : null,
-      reportName: _scope == "Professional" ? _reportName : null,
-    );
-
-    await LocalDb.instance.insertExpense({
-      'id': e.id,
-      'date': e.date.toIso8601String(),
-      'vendor': e.vendor,
-      'category': e.category,
-      'client': e.client,
-      'type': e.type,
-      'scope': e.scope,
-      'currency': e.currency,
-      'amount': e.amount,
-      'receipt_path': e.receiptPath,
-      'report_id': e.reportId,
-      'report_name': e.reportName,
-
-      // reimbursement defaults (professional only)
-      'reimbursable': e.scope == "Professional" ? 1 : 0,
-      'reimbursement_status': "Not Submitted",
-      'reimbursed_amount_eur': 0.0,
-      'reimbursement_date': null,
-      'reimbursement_payer': null,
-      'reimbursement_reference': null,
+    // Update the expense in the database
+    await LocalDb.instance.updateExpense(widget.expense.id, {
+      'date': _date.toIso8601String(),
+      'vendor': _vendorCtrl.text.trim(),
+      'category': _category,
+      'client': _clientName!,
+      'type': _type,
+      'scope': _scope,
+      'currency': _currency,
+      'amount': amount,
+      'receipt_path': _receiptFile?.path,
+      'report_id': _scope == "Professional" ? _reportId : null,
+      'report_name': _scope == "Professional" ? _reportName : null,
     });
 
-    expenseStore.add(e);
-    Navigator.of(context).pop();
+    await expenseStore.loadFromDb();
+    
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  Future<void> _deleteExpense() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Delete Expense"),
+        content: const Text("Are you sure you want to delete this expense?"),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancel")),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text("Delete"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      await LocalDb.instance.deleteExpense(widget.expense.id);
+      await expenseStore.loadFromDb();
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+    }
   }
 
   @override
@@ -250,8 +266,12 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Add Expense'),
+        title: const Text('Edit Expense'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.delete),
+            onPressed: _deleteExpense,
+          ),
           TextButton(onPressed: _save, child: const Text('Save')),
         ],
       ),
@@ -262,7 +282,6 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  // Scope toggle
                   SegmentedButton<String>(
                     segments: const [
                       ButtonSegment(value: "Professional", label: Text("Professional")),
@@ -356,7 +375,6 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
                   const SizedBox(height: 12),
 
-                  // Client selector + add new
                   Row(
                     children: [
                       Expanded(
@@ -401,7 +419,6 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
                   const SizedBox(height: 12),
 
-                  // Professional: report selector + create
                   if (_scope == "Professional") ...[
                     Row(
                       children: [
@@ -476,7 +493,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                   ElevatedButton.icon(
                     onPressed: _save,
                     icon: const Icon(Icons.check),
-                    label: const Text('Save Expense'),
+                    label: const Text('Save Changes'),
                   ),
                 ],
               ),

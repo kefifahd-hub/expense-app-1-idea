@@ -76,7 +76,9 @@ class ReportService {
         : "M${month.toString().padLeft(2, '0')}_$year";
 
     final safeClient = client.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
-    final baseName = "report_${safeClient}_$periodLabel_$ts";
+
+    // IMPORTANT: correct interpolation
+    final baseName = "report_${safeClient}_${periodLabel}_$ts";
 
     final xlsxPath = "${dir.path}/$baseName.xlsx";
     final pdfPath = "${dir.path}/$baseName.pdf";
@@ -194,7 +196,10 @@ class ReportService {
     ]);
 
     summary.appendRow([TextCellValue('')]);
-    summary.appendRow([TextCellValue('By Category'), TextCellValue('Amount (Assumed EUR)')]);
+    summary.appendRow([
+      TextCellValue('By Category'),
+      TextCellValue('Amount (Assumed EUR)'),
+    ]);
 
     final cats = totalByCategory.keys.toList()..sort();
     for (final c in cats) {
@@ -257,7 +262,14 @@ class ReportService {
         ? "CW${cw.toString().padLeft(2, '0')} $year"
         : "Month ${month.toString().padLeft(2, '0')} $year";
 
-    // Page 1 summary
+    // Pre-build receipt widgets (async OK here)
+    final receiptWidgets = <pw.Widget>[];
+    for (final e in filtered) {
+      if (e.receiptPath != null) {
+        receiptWidgets.addAll(await _receiptBlock(e));
+      }
+    }
+
     doc.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
@@ -265,15 +277,21 @@ class ReportService {
           final cats = totalByCategory.keys.toList()..sort();
 
           return [
-            pw.Text("Expense Report", style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold)),
+            pw.Text(
+              "Expense Report",
+              style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold),
+            ),
             pw.SizedBox(height: 6),
             pw.Text("Client: $client"),
             pw.Text("Period: $periodStr"),
             pw.SizedBox(height: 12),
 
-            pw.Text("Totals (Assumed EUR)", style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+            pw.Text(
+              "Totals (Assumed EUR)",
+              style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+            ),
             pw.SizedBox(height: 6),
-            pw.Table.fromTextArray(
+            pw.TableHelper.fromTextArray(
               headers: ['Total', 'Business', 'Personal'],
               data: [
                 [_fmt(totalAll), _fmt(totalBusiness), _fmt(totalPersonal)],
@@ -281,9 +299,12 @@ class ReportService {
             ),
 
             pw.SizedBox(height: 12),
-            pw.Text("Reimbursement (Assumed EUR)", style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+            pw.Text(
+              "Reimbursement (Assumed EUR)",
+              style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+            ),
             pw.SizedBox(height: 6),
-            pw.Table.fromTextArray(
+            pw.TableHelper.fromTextArray(
               headers: ['Reimbursable Total', 'Reimbursed', 'Pending'],
               data: [
                 [_fmt(reimbursableTotalAssumedEur), _fmt(reimbursedTotalEur), _fmt(pendingTotalEur)],
@@ -291,9 +312,12 @@ class ReportService {
             ),
 
             pw.SizedBox(height: 12),
-            pw.Text("By Category (Assumed EUR)", style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+            pw.Text(
+              "By Category (Assumed EUR)",
+              style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+            ),
             pw.SizedBox(height: 6),
-            pw.Table.fromTextArray(
+            pw.TableHelper.fromTextArray(
               headers: ['Category', 'Amount'],
               data: [
                 for (final c in cats) [c, _fmt(totalByCategory[c] ?? 0)],
@@ -301,9 +325,12 @@ class ReportService {
             ),
 
             pw.SizedBox(height: 16),
-            pw.Text("Expenses", style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+            pw.Text(
+              "Expenses",
+              style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+            ),
             pw.SizedBox(height: 6),
-            pw.Table.fromTextArray(
+            pw.TableHelper.fromTextArray(
               headers: ['Date', 'Vendor', 'Category', 'Type', 'Amount', 'Receipt'],
               data: [
                 for (final e in filtered)
@@ -318,14 +345,20 @@ class ReportService {
               ],
             ),
 
-            // Receipt pages start after summary (still in same pdf)
             pw.SizedBox(height: 18),
-            pw.Text("Receipts", style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+            pw.Text(
+              "Receipts",
+              style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+            ),
             pw.SizedBox(height: 6),
 
-            for (final e in filtered)
-              if (e.receiptPath != null)
-                ...await _receiptBlock(e),
+            if (receiptWidgets.isEmpty)
+              pw.Text(
+                "No receipts attached for this period.",
+                style: const pw.TextStyle(fontSize: 10),
+              )
+            else
+              ...receiptWidgets,
           ];
         },
       ),
@@ -349,7 +382,10 @@ class ReportService {
               "${_yyyyMmDd(e.date)} • ${e.client} • ${e.category}",
               style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
             ),
-            pw.Text("${e.vendor} • ${e.type} • ${_fmt(e.amount)} ${e.currency}", style: const pw.TextStyle(fontSize: 10)),
+            pw.Text(
+              "${e.vendor} • ${e.type} • ${_fmt(e.amount)} ${e.currency}",
+              style: const pw.TextStyle(fontSize: 10),
+            ),
             pw.SizedBox(height: 8),
           ],
         ),
@@ -369,10 +405,20 @@ class ReportService {
           ),
         );
       } else {
-        widgets.add(pw.Text("Receipt file not found on device: ${e.receiptPath}", style: const pw.TextStyle(fontSize: 10)));
+        widgets.add(
+          pw.Text(
+            "Receipt file not found on device: ${e.receiptPath}",
+            style: const pw.TextStyle(fontSize: 10),
+          ),
+        );
       }
     } catch (err) {
-      widgets.add(pw.Text("Failed to load receipt image: $err", style: const pw.TextStyle(fontSize: 10)));
+      widgets.add(
+        pw.Text(
+          "Failed to load receipt image: $err",
+          style: const pw.TextStyle(fontSize: 10),
+        ),
+      );
     }
 
     return widgets;
@@ -394,5 +440,6 @@ class ReportService {
 
   static String _fmt(double v) => v.toStringAsFixed(2);
 
-  static String _short(String s, int max) => s.length <= max ? s : "${s.substring(0, max - 1)}…";
+  static String _short(String s, int max) =>
+      s.length <= max ? s : "${s.substring(0, max - 1)}…";
 }
