@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Paper Parkour — Roll the Ball to the Flag</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0e0e12; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  #app { position: fixed; inset: 0; }
+  canvas { display: block; }
+
+  .hud { position: fixed; pointer-events: none; user-select: none; color: #fff; text-shadow: 0 2px 6px rgba(0,0,0,.6); }
+  #top { top: 14px; left: 14px; font-size: 15px; line-height: 1.5; }
+  #top b { color: #ffd54a; }
+  #timer { top: 14px; right: 16px; font-size: 22px; font-weight: 700; letter-spacing: .5px; text-align: right; }
+  #timer small { display:block; font-size: 12px; font-weight: 400; opacity:.8; }
+
+  #help {
+    position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
+    color: #fff; font-size: 13px; background: rgba(20,20,28,.55); backdrop-filter: blur(6px);
+    padding: 8px 14px; border-radius: 999px; pointer-events: none; white-space: nowrap;
+    border: 1px solid rgba(255,255,255,.12);
+  }
+  #help kbd {
+    background: rgba(255,255,255,.14); border-radius: 5px; padding: 1px 6px; margin: 0 1px;
+    font-family: inherit; font-size: 12px; border: 1px solid rgba(255,255,255,.18);
+  }
+
+  .panel {
+    position: fixed; inset: 0; display: grid; place-items: center; text-align: center;
+    background: radial-gradient(circle at 50% 35%, rgba(30,30,46,.78), rgba(8,8,12,.92));
+    color: #fff; z-index: 10; transition: opacity .4s ease;
+  }
+  .panel .card {
+    max-width: 460px; padding: 28px 34px; background: rgba(22,22,32,.7);
+    border: 1px solid rgba(255,255,255,.12); border-radius: 18px; box-shadow: 0 20px 60px rgba(0,0,0,.5);
+  }
+  .panel h1 { margin: 0 0 6px; font-size: 30px; }
+  .panel h1 .em { color: #ffd54a; }
+  .panel p { margin: 6px 0; opacity: .9; font-size: 15px; line-height: 1.55; }
+  .panel button {
+    margin-top: 16px; pointer-events: auto; cursor: pointer; border: 0; border-radius: 12px;
+    padding: 12px 26px; font-size: 16px; font-weight: 700; color: #18141f;
+    background: linear-gradient(180deg,#ffe27a,#ffcb2e); box-shadow: 0 8px 22px rgba(255,200,40,.35);
+  }
+  .panel button:active { transform: translateY(1px); }
+  .hidden { opacity: 0; pointer-events: none !important; }
+
+  /* Mobile touch controls */
+  #touch { position: fixed; inset: 0; z-index: 5; pointer-events: none; display: none; }
+  #touch .pad {
+    position: absolute; bottom: 28px; left: 24px; width: 150px; height: 150px;
+    border-radius: 50%; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.14);
+    pointer-events: auto; touch-action: none;
+  }
+  #touch .stick {
+    position: absolute; left: 50%; top: 50%; width: 64px; height: 64px; margin: -32px 0 0 -32px;
+    border-radius: 50%; background: rgba(255,255,255,.22); border: 1px solid rgba(255,255,255,.3);
+  }
+  #touch .jump {
+    position: absolute; bottom: 44px; right: 28px; width: 110px; height: 110px; border-radius: 50%;
+    background: rgba(255,205,46,.25); border: 2px solid rgba(255,205,46,.6); color: #fff;
+    font-weight: 800; font-size: 18px; display: grid; place-items: center; pointer-events: auto; touch-action: none;
+  }
+  body.is-touch #touch { display: block; }
+  body.is-touch #help { display: none; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<div class="hud" id="top">Paper Parkour 🎨<br>Checkpoints: <b id="cp">0</b> / <span id="cpTotal">0</span></div>
+<div class="hud" id="timer">0.0s<small>best —</small></div>
+
+<div id="help">
+  <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / Arrows move &nbsp;·&nbsp;
+  <kbd>Space</kbd> jump &nbsp;·&nbsp; Drag mouse to look &nbsp;·&nbsp; <kbd>R</kbd> respawn
+</div>
+
+<div id="touch">
+  <div class="pad" id="pad"><div class="stick" id="stick"></div></div>
+  <div class="jump" id="jumpBtn">JUMP</div>
+</div>
+
+<div class="panel" id="startPanel">
+  <div class="card">
+    <h1>Paper <span class="em">Parkour</span></h1>
+    <p>Roll and jump the ball through the colorful paper course — over ramps, across gaps, up the zig-zag stairs and the spiral, through the loops — and reach the <b>flag</b> at the top.</p>
+    <p style="font-size:13px;opacity:.75">Move: <b>WASD</b> / arrows · Jump: <b>Space</b> · Look: drag · Respawn: <b>R</b></p>
+    <button id="startBtn">▶ Play</button>
+  </div>
+</div>
+
+<div class="panel hidden" id="winPanel">
+  <div class="card">
+    <h1>🏁 You reached the flag!</h1>
+    <p id="winTime">Time: —</p>
+    <button id="againBtn">↺ Play again</button>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+// ------------------------------------------------------------------
+// Renderer / scene / camera
+// ------------------------------------------------------------------
+const app = document.getElementById('app');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+app.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x141420);
+scene.fog = new THREE.Fog(0x141420, 60, 160);
+
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 500);
+
+// Lights
+scene.add(new THREE.HemisphereLight(0xbfd4ff, 0x20202c, 0.85));
+const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+sun.position.set(28, 48, 18);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 160;
+const sc = 75;
+sun.shadow.camera.left = -sc; sun.shadow.camera.right = sc;
+sun.shadow.camera.top = sc; sun.shadow.camera.bottom = -sc;
+sun.shadow.bias = -0.0003;
+scene.add(sun);
+scene.add(sun.target);
+
+// Soft "carpet" floor far below, so falling reads clearly
+const carpet = new THREE.Mesh(
+  new THREE.PlaneGeometry(600, 600),
+  new THREE.MeshStandardMaterial({ color: 0xb9bcc4, roughness: 1 })
+);
+carpet.rotation.x = -Math.PI / 2;
+carpet.position.y = -30;
+carpet.receiveShadow = true;
+scene.add(carpet);
+
+// ------------------------------------------------------------------
+// Colors taken from the paper craft
+// ------------------------------------------------------------------
+const C = {
+  pink:   0xf48fb1,
+  magenta:0xe0218a,
+  yellow: 0xf6c026,
+  green:  0x5aa02c,
+  lime:   0x8bc34a,
+  purple: 0x5e3a87,
+  brown:  0x9b5d2c,
+  blue:   0x5bb7d6,
+  red:    0xd5382f,
+  lav:    0xb39ddb,
+  orange: 0xef7d24,
+  black:  0x1c1c24,
+};
+
+// ------------------------------------------------------------------
+// Colliders: oriented boxes (OBB). Visual mesh + physics share data.
+// ------------------------------------------------------------------
+const colliders = []; // { center, half, quat, invQuat, checkpoint, top }
+
+function platform(x, y, z, sx, sy, sz, color, opts = {}) {
+  const { rotX = 0, rotY = 0, rotZ = 0, checkpoint = false, collide = true, rough = 0.85 } = opts;
+  const geo = new THREE.BoxGeometry(sx, sy, sz);
+  const mat = new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: 0.02 });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, y, z);
+  mesh.rotation.set(rotX, rotY, rotZ);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+
+  if (collide) {
+    const quat = new THREE.Quaternion().setFromEuler(new THREE.Euler(rotX, rotY, rotZ));
+    colliders.push({
+      center: new THREE.Vector3(x, y, z),
+      half: new THREE.Vector3(sx / 2, sy / 2, sz / 2),
+      quat,
+      invQuat: quat.clone().invert(),
+      checkpoint,
+      mesh,
+    });
+  }
+  return mesh;
+}
+
+// Decorative rolled-paper loop (a torus arch) — pure eye-candy, no collision
+function loopArch(x, y, z, radius, tube, color, rotY = 0, rotZ = 0) {
+  const m = new THREE.Mesh(
+    new THREE.TorusGeometry(radius, tube, 16, 48),
+    new THREE.MeshStandardMaterial({ color, roughness: 0.7, side: THREE.DoubleSide })
+  );
+  m.position.set(x, y, z);
+  m.rotation.set(0, rotY, rotZ);
+  m.castShadow = true;
+  scene.add(m);
+}
+
+// Decorative rolled-paper curl (open cylinder)
+function curl(x, y, z, radius, height, color, rotX = 0, rotZ = 0) {
+  const m = new THREE.Mesh(
+    new THREE.CylinderGeometry(radius, radius, height, 24, 1, true),
+    new THREE.MeshStandardMaterial({ color, roughness: 0.7, side: THREE.DoubleSide })
+  );
+  m.position.set(x, y, z);
+  m.rotation.set(rotX, 0, rotZ);
+  m.castShadow = true;
+  scene.add(m);
+}
+
+// ==================================================================
+// THE COURSE  (path runs in +Z, climbing as it goes)
+// Each "checkpoint:true" platform updates your respawn point.
+// ==================================================================
+
+// 1) Black board base + bright start pad (echoes the cardboard)
+platform(0, -0.6, 0, 16, 1, 16, C.black);                       // the board
+platform(0, 0.0, -1, 7, 0.6, 7, C.pink, { checkpoint: true });  // start pad
+
+// 2) Stepping stones across a gap (jump forward + up)
+platform(0, 0.4, 7.5, 3.2, 0.6, 3.2, C.yellow);
+platform(-1.5, 1.0, 12.5, 3.0, 0.6, 3.0, C.lime, { checkpoint: true });
+platform(1.5, 1.7, 17.5, 3.0, 0.6, 3.0, C.magenta);
+
+// 3) Up a ramp (a pitched paper strip, like the brown arch)
+platform(1.5, 2.7, 23.5, 3.4, 0.5, 8.0, C.brown, { rotX: -0.32 });
+platform(1.5, 4.1, 30.0, 4.0, 0.6, 4.0, C.blue, { checkpoint: true });
+
+// decorative loop you roll under, like the paper rings
+loopArch(1.5, 5.2, 30.0, 2.6, 0.28, C.red, 0, Math.PI / 2);
+loopArch(1.5, 5.2, 30.0, 2.0, 0.22, C.lime, 0, Math.PI / 2);
+
+// 4) Zig-zag stairs (the pink accordion) — climb, alternating left/right
+let zx = 1.5, zy = 4.6, zz = 34.5;
+const zigColors = [C.pink, C.lav, C.pink, C.lav, C.pink, C.lav];
+for (let i = 0; i < 6; i++) {
+  const side = i % 2 === 0 ? -1 : 1;
+  platform(zx + side * 1.3, zy, zz, 3.0, 0.5, 2.4, zigColors[i], { rotZ: side * 0.12 });
+  zy += 0.95; zz += 2.6;
+}
+platform(1.5, zy + 0.1, zz + 1.5, 4.2, 0.6, 4.2, C.green, { checkpoint: true });
+
+// 5) Narrow bridge (a thin paper strip you balance along)
+platform(1.5, zy + 0.1, zz + 7.5, 1.6, 0.4, 9.0, C.orange);
+const bridgeEndZ = zz + 13.5;
+
+// 6) Floating platforms — sideways hops (right / left / forward)
+let fy = zy + 0.1;
+platform(5.0, fy + 0.6, bridgeEndZ + 1.0, 3.0, 0.6, 3.0, C.yellow);
+platform(5.0, fy + 1.4, bridgeEndZ + 6.0, 3.0, 0.6, 3.0, C.purple, { checkpoint: true });
+platform(0.5, fy + 2.2, bridgeEndZ + 9.5, 3.0, 0.6, 3.0, C.red);
+platform(-3.5, fy + 3.0, bridgeEndZ + 13.0, 3.0, 0.6, 3.0, C.blue);
+
+// decorative curls near the floaters
+curl(8.5, fy + 2.0, bridgeEndZ + 4.0, 1.1, 2.4, C.yellow, 0.0, 0.5);
+curl(-6.5, fy + 4.0, bridgeEndZ + 14.0, 0.9, 2.0, C.purple, 0.3, 0.0);
+
+// 7) Spiral climb around a column (the rolled paper spirals)
+const spinCx = -3.5, spinCz = bridgeEndZ + 13.0;
+let spinY = fy + 3.0;
+const spinColors = [C.lime, C.magenta, C.yellow, C.blue, C.pink, C.green, C.orange, C.lav];
+let lastSpin = null;
+for (let i = 1; i <= 8; i++) {
+  const a = i * 0.7;
+  const r = 4.2;
+  const x = spinCx + Math.cos(a) * r;
+  const z = spinCz + Math.sin(a) * r;
+  spinY += 0.85;
+  platform(x, spinY, z, 2.6, 0.5, 2.6, spinColors[i % spinColors.length],
+           { rotY: -a, checkpoint: i === 4 });
+  lastSpin = { x, z };
+}
+// the column in the middle
+curl(spinCx, spinY - 2.5, spinCz, 1.0, 8.0, C.brown);
+
+// 8) Final approach + big loop arch + GOAL platform with flag
+const goalZ = spinCz + 8.5;
+platform(lastSpin.x, spinY + 0.4, lastSpin.z + 4.0, 3.2, 0.5, 6.0, C.lime, { rotX: -0.18 });
+const goalX = lastSpin.x, goalY = spinY + 1.6;
+platform(goalX, goalY, goalZ, 6.5, 0.7, 6.5, C.blue, { checkpoint: true });
+
+loopArch(goalX, goalY + 3.0, goalZ - 4.5, 3.0, 0.3, C.green, 0, Math.PI / 2);
+loopArch(goalX, goalY + 3.0, goalZ - 4.5, 2.4, 0.24, C.blue, 0, Math.PI / 2);
+
+// Flag pole + flag (the red flag on top of the craft)
+const pole = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.12, 0.12, 5, 12),
+  new THREE.MeshStandardMaterial({ color: 0xf4f4f4, roughness: .6 })
+);
+pole.position.set(goalX, goalY + 2.85, goalZ);
+pole.castShadow = true;
+scene.add(pole);
+const flag = new THREE.Mesh(
+  new THREE.PlaneGeometry(2.2, 1.3),
+  new THREE.MeshStandardMaterial({ color: C.red, roughness: .7, side: THREE.DoubleSide })
+);
+flag.position.set(goalX + 1.1, goalY + 4.6, goalZ);
+scene.add(flag);
+const goalPos = new THREE.Vector3(goalX, goalY + 0.7, goalZ);
+
+// ------------------------------------------------------------------
+// The ball
+// ------------------------------------------------------------------
+const BALL_R = 0.55;
+const ball = new THREE.Mesh(
+  new THREE.SphereGeometry(BALL_R, 32, 24),
+  new THREE.MeshStandardMaterial({ color: 0xff7043, roughness: 0.35, metalness: 0.05 })
+);
+ball.castShadow = true;
+scene.add(ball);
+// little marker stripes so rolling is visible
+const stripeMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: .4 });
+for (let i = 0; i < 2; i++) {
+  const s = new THREE.Mesh(new THREE.TorusGeometry(BALL_R * 0.99, 0.06, 8, 32), stripeMat);
+  if (i) s.rotation.y = Math.PI / 2;
+  s.rotation.x = Math.PI / 2;
+  ball.add(s);
+}
+
+const pos = new THREE.Vector3();
+const vel = new THREE.Vector3();
+let respawn = new THREE.Vector3(0, 1.6, -1);
+const checkpointsTotal = colliders.filter(c => c.checkpoint).length;
+let checkpointsHit = 0;
+const cpReached = new Set();
+document.getElementById('cpTotal').textContent = checkpointsTotal;
+
+function spawnAt(p) {
+  pos.copy(p);
+  vel.set(0, 0, 0);
+  ball.position.copy(pos);
+}
+spawnAt(respawn);
+
+// ------------------------------------------------------------------
+// Input
+// ------------------------------------------------------------------
+const keys = {};
+addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  keys[k] = true;
+  if (k === 'r') spawnAt(respawn);
+  if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
+});
+addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+// Camera orbit via mouse / touch drag
+let camYaw = Math.PI;     // behind the ball, looking +Z
+let camPitch = 0.42;
+let camDist = 12;
+let dragging = false, lastX = 0, lastY = 0;
+renderer.domElement.addEventListener('pointerdown', e => { dragging = true; lastX = e.clientX; lastY = e.clientY; });
+addEventListener('pointerup', () => dragging = false);
+addEventListener('pointermove', e => {
+  if (!dragging) return;
+  camYaw   -= (e.clientX - lastX) * 0.005;
+  camPitch += (e.clientY - lastY) * 0.005;
+  camPitch = Math.max(0.05, Math.min(1.25, camPitch));
+  lastX = e.clientX; lastY = e.clientY;
+});
+addEventListener('wheel', e => {
+  camDist = Math.max(6, Math.min(22, camDist + Math.sign(e.deltaY) * 1.2));
+}, { passive: true });
+
+// Touch joystick
+const isTouch = matchMedia('(pointer: coarse)').matches;
+if (isTouch) document.body.classList.add('is-touch');
+const touch = { x: 0, y: 0, jump: false };
+const pad = document.getElementById('pad'), stick = document.getElementById('stick');
+let padId = null, padCx = 0, padCy = 0;
+function padStart(e) {
+  const r = pad.getBoundingClientRect();
+  padCx = r.left + r.width / 2; padCy = r.top + r.height / 2;
+  padId = e.pointerId; padMove(e);
+}
+function padMove(e) {
+  if (e.pointerId !== padId) return;
+  let dx = e.clientX - padCx, dy = e.clientY - padCy;
+  const max = 55, len = Math.hypot(dx, dy);
+  if (len > max) { dx *= max / len; dy *= max / len; }
+  stick.style.transform = `translate(${dx}px,${dy}px)`;
+  touch.x = dx / max; touch.y = dy / max;
+}
+function padEnd(e) {
+  if (e.pointerId !== padId) return;
+  padId = null; touch.x = touch.y = 0; stick.style.transform = '';
+}
+pad.addEventListener('pointerdown', padStart);
+pad.addEventListener('pointermove', padMove);
+pad.addEventListener('pointerup', padEnd);
+pad.addEventListener('pointercancel', padEnd);
+const jumpBtn = document.getElementById('jumpBtn');
+jumpBtn.addEventListener('pointerdown', e => { e.preventDefault(); touch.jump = true; });
+jumpBtn.addEventListener('pointerup', () => touch.jump = false);
+jumpBtn.addEventListener('pointercancel', () => touch.jump = false);
+
+// ------------------------------------------------------------------
+// Physics
+// ------------------------------------------------------------------
+const GRAVITY = 32;
+const MOVE_ACCEL = 70;
+const MAX_SPEED = 9.5;
+const GROUND_FRICTION = 0.86;
+const AIR_FRICTION = 0.985;
+const JUMP_VELOCITY = 12.5;
+let grounded = false;
+let coyote = 0;        // grace period to jump just after leaving ground
+let jumpHeld = false;
+
+const tmp = new THREE.Vector3();
+const localPos = new THREE.Vector3();
+const closest = new THREE.Vector3();
+const normalWorld = new THREE.Vector3();
+
+function resolveCollisions() {
+  grounded = false;
+  let groundCollider = null;
+  for (const c of colliders) {
+    // sphere center into box local space
+    localPos.copy(pos).sub(c.center).applyQuaternion(c.invQuat);
+    closest.set(
+      Math.max(-c.half.x, Math.min(c.half.x, localPos.x)),
+      Math.max(-c.half.y, Math.min(c.half.y, localPos.y)),
+      Math.max(-c.half.z, Math.min(c.half.z, localPos.z))
+    );
+    tmp.copy(localPos).sub(closest);
+    let dist = tmp.length();
+
+    if (dist < BALL_R) {
+      let nLocal;
+      if (dist > 1e-5) {
+        nLocal = tmp.multiplyScalar(1 / dist);
+      } else {
+        // center is inside the box: push out along the smallest face distance
+        const dx = c.half.x - Math.abs(localPos.x);
+        const dy = c.half.y - Math.abs(localPos.y);
+        const dz = c.half.z - Math.abs(localPos.z);
+        nLocal = new THREE.Vector3();
+        if (dx <= dy && dx <= dz)      nLocal.set(Math.sign(localPos.x) || 1, 0, 0);
+        else if (dy <= dz)             nLocal.set(0, Math.sign(localPos.y) || 1, 0);
+        else                           nLocal.set(0, 0, Math.sign(localPos.z) || 1);
+        dist = -Math.min(dx, dy, dz);
+      }
+      const penetration = BALL_R - dist;
+      normalWorld.copy(nLocal).applyQuaternion(c.quat).normalize();
+
+      // push out of the surface
+      pos.addScaledVector(normalWorld, penetration);
+
+      // remove velocity heading into the surface
+      const vn = vel.dot(normalWorld);
+      if (vn < 0) vel.addScaledVector(normalWorld, -vn);
+
+      // standing on top-ish surface => grounded
+      if (normalWorld.y > 0.5) {
+        grounded = true;
+        groundCollider = c;
+      }
+    }
+  }
+
+  // checkpoint / respawn handling
+  if (groundCollider && groundCollider.checkpoint) {
+    if (!cpReached.has(groundCollider)) {
+      cpReached.add(groundCollider);
+      checkpointsHit = cpReached.size;
+      document.getElementById('cp').textContent = checkpointsHit;
+    }
+    respawn.copy(groundCollider.center);
+    respawn.y += groundCollider.half.y + BALL_R + 0.05;
+  }
+}
+
+// ------------------------------------------------------------------
+// Game state / loop
+// ------------------------------------------------------------------
+let running = false;
+let startTime = 0;
+let elapsed = 0;
+let won = false;
+let best = parseFloat(localStorage.getItem('parkourBest') || '0') || 0;
+updateBest();
+
+function updateBest() {
+  document.querySelector('#timer small').textContent = best ? 'best ' + best.toFixed(1) + 's' : 'best —';
+}
+
+const startPanel = document.getElementById('startPanel');
+const winPanel = document.getElementById('winPanel');
+document.getElementById('startBtn').onclick = startGame;
+document.getElementById('againBtn').onclick = startGame;
+
+function startGame() {
+  cpReached.clear();
+  checkpointsHit = 0;
+  document.getElementById('cp').textContent = 0;
+  respawn.set(0, 1.6, -1);
+  spawnAt(respawn);
+  won = false;
+  running = true;
+  startTime = performance.now();
+  startPanel.classList.add('hidden');
+  winPanel.classList.add('hidden');
+}
+
+function win() {
+  won = true;
+  running = false;
+  document.getElementById('winTime').textContent =
+    'Time: ' + elapsed.toFixed(1) + 's  ·  Checkpoints: ' + checkpointsHit + '/' + checkpointsTotal;
+  if (!best || elapsed < best) { best = elapsed; localStorage.setItem('parkourBest', best.toFixed(2)); updateBest(); }
+  winPanel.classList.remove('hidden');
+}
+
+const clock = new THREE.Clock();
+const camForward = new THREE.Vector3();
+const camRight = new THREE.Vector3();
+const desiredCam = new THREE.Vector3();
+const up = new THREE.Vector3(0, 1, 0);
+const spin = new THREE.Vector3();
+
+function step(dt) {
+  // --- desired horizontal move direction, relative to camera ---
+  camForward.set(Math.sin(camYaw), 0, Math.cos(camYaw)).normalize();
+  camRight.crossVectors(camForward, up).normalize().multiplyScalar(-1);
+
+  let ix = 0, iz = 0;
+  if (keys['w'] || keys['arrowup']) iz += 1;
+  if (keys['s'] || keys['arrowdown']) iz -= 1;
+  if (keys['d'] || keys['arrowright']) ix += 1;
+  if (keys['a'] || keys['arrowleft']) ix -= 1;
+  if (isTouch) { ix += touch.x; iz += -touch.y; }
+
+  const wish = tmp.set(0, 0, 0)
+    .addScaledVector(camForward, iz)
+    .addScaledVector(camRight, ix);
+  if (wish.lengthSq() > 1) wish.normalize();
+
+  vel.x += wish.x * MOVE_ACCEL * dt;
+  vel.z += wish.z * MOVE_ACCEL * dt;
+
+  // clamp horizontal speed
+  const hs = Math.hypot(vel.x, vel.z);
+  if (hs > MAX_SPEED) { vel.x *= MAX_SPEED / hs; vel.z *= MAX_SPEED / hs; }
+
+  // gravity
+  vel.y -= GRAVITY * dt;
+
+  // jump (with small coyote time)
+  const wantJump = keys[' '] || (isTouch && touch.jump);
+  if (grounded) coyote = 0.1; else coyote = Math.max(0, coyote - dt);
+  if (wantJump && coyote > 0 && !jumpHeld) {
+    vel.y = JUMP_VELOCITY;
+    coyote = 0;
+  }
+  jumpHeld = wantJump;
+
+  // integrate (sub-stepped so fast falls don't tunnel through thin paper)
+  const steps = 3;
+  const sdt = dt / steps;
+  for (let i = 0; i < steps; i++) {
+    pos.addScaledVector(vel, sdt);
+    resolveCollisions();
+  }
+
+  // friction
+  if (grounded) { vel.x *= GROUND_FRICTION; vel.z *= GROUND_FRICTION; }
+  else { vel.x *= AIR_FRICTION; vel.z *= AIR_FRICTION; }
+
+  ball.position.copy(pos);
+
+  // roll the ball based on horizontal motion
+  spin.set(vel.z, 0, -vel.x).multiplyScalar(dt / BALL_R);
+  if (spin.lengthSq() > 1e-7) {
+    const q = new THREE.Quaternion().setFromAxisAngle(
+      spin.clone().normalize(), spin.length());
+    ball.quaternion.premultiply(q);
+  }
+
+  // fell off the world -> back to last checkpoint
+  if (pos.y < -12) spawnAt(respawn);
+
+  // reached the flag?
+  if (!won && pos.distanceTo(goalPos) < 3.2) win();
+}
+
+function updateCamera(dt) {
+  const tgt = ball.position;
+  desiredCam.set(
+    tgt.x - Math.sin(camYaw) * Math.cos(camPitch) * camDist,
+    tgt.y + Math.sin(camPitch) * camDist + 1.5,
+    tgt.z - Math.cos(camYaw) * Math.cos(camPitch) * camDist
+  );
+  camera.position.lerp(desiredCam, 1 - Math.pow(0.0015, dt));
+  camera.lookAt(tgt.x, tgt.y + 1.0, tgt.z);
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  let dt = Math.min(clock.getDelta(), 0.033);
+
+  if (running) {
+    step(dt);
+    elapsed = (performance.now() - startTime) / 1000;
+    document.getElementById('timer').firstChild.textContent = elapsed.toFixed(1) + 's';
+  }
+  // gently wave the flag
+  flag.rotation.y = Math.sin(performance.now() * 0.004) * 0.25;
+
+  updateCamera(dt);
+  renderer.render(scene, camera);
+}
+animate();
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// place camera initially behind the ball
+camera.position.set(0, 8, -12);
+camera.lookAt(0, 1, 0);
+</script>
+</body>
+</html>
