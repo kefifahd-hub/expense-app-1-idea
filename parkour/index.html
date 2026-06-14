@@ -102,7 +102,7 @@
 </div>
 
 <script type="importmap">
-{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+{ "imports": { "three": "./three.module.js" } }
 </script>
 
 <script type="module">
@@ -359,7 +359,7 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
 
 // Camera orbit via mouse / touch drag
-let camYaw = Math.PI;     // behind the ball, looking +Z
+let camYaw = 0;           // camera on the -Z side, looking +Z down the course
 let camPitch = 0.42;
 let camDist = 12;
 let dragging = false, lastX = 0, lastY = 0;
@@ -635,6 +635,9 @@ addEventListener('resize', () => {
 // place camera initially behind the ball
 camera.position.set(0, 8, -12);
 camera.lookAt(0, 1, 0);
+
+// debug hook (used for automated screenshots; harmless in normal play)
+window.__game = { THREE, scene, camera, renderer, ball, goalPos, start: startGame };
 </script>
 </body>
 </html>
