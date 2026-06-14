@@ -71,6 +71,43 @@
 <body>
 <div id="app"></div>
 
+<!-- Early, classic (non-module) script so it can catch and DISPLAY any error
+     from the module below — otherwise failures are silent and "Play" looks dead. -->
+<script>
+(function () {
+  function box(msg) {
+    var d = document.getElementById('errbox');
+    if (!d) {
+      d = document.createElement('div');
+      d.id = 'errbox';
+      d.style.cssText = 'position:fixed;left:8px;right:8px;bottom:8px;z-index:99999;' +
+        'background:#b3261e;color:#fff;font:13px/1.4 system-ui,monospace;padding:12px 14px;' +
+        'border-radius:10px;white-space:pre-wrap;max-height:45%;overflow:auto;' +
+        'box-shadow:0 8px 30px rgba(0,0,0,.5)';
+      document.body.appendChild(d);
+    }
+    d.textContent = '⚠ ' + msg;
+    var sp = document.getElementById('startPanel');
+    if (sp) sp.style.display = 'none';
+  }
+  window.__errBox = box;
+  window.addEventListener('error', function (e) {
+    box((e.message || 'Script error') + (e.filename ? ('\n@ ' + e.filename + ':' + e.lineno) : ''));
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    var r = e.reason;
+    box('Unhandled: ' + (r && (r.stack || r.message) ? (r.stack || r.message) : r));
+  });
+  // Quick WebGL2 capability probe with a friendly message.
+  try {
+    var c = document.createElement('canvas');
+    if (!c.getContext('webgl2') && !c.getContext('webgl')) {
+      box('This browser has no WebGL, which the 3D game needs.\nTry opening the file in Chrome or Safari (not an in-app file preview).');
+    }
+  } catch (err) { /* ignore */ }
+})();
+</script>
+
 <div class="hud" id="top">Paper Parkour 🎨<br>Checkpoints: <b id="cp">0</b> / <span id="cpTotal">0</span></div>
 <div class="hud" id="timer">0.0s<small>best —</small></div>
 
@@ -112,7 +149,14 @@ import * as THREE from 'three';
 // Renderer / scene / camera
 // ------------------------------------------------------------------
 const app = document.getElementById('app');
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+} catch (err) {
+  window.__errBox('Could not start WebGL: ' + (err && err.message ? err.message : err) +
+    '\nTry Chrome or Safari, and open the file in a real browser tab.');
+  throw err;
+}
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
@@ -501,8 +545,18 @@ function updateBest() {
 
 const startPanel = document.getElementById('startPanel');
 const winPanel = document.getElementById('winPanel');
-document.getElementById('startBtn').onclick = startGame;
-document.getElementById('againBtn').onclick = startGame;
+// Robust start: respond to click AND touch, and to a tap anywhere on the panel
+// (some mobile browsers swallow taps on small buttons / add click delays).
+function bindStart(el) {
+  if (!el) return;
+  const go = (e) => { if (e) e.preventDefault(); startGame(); };
+  el.addEventListener('click', go);
+  el.addEventListener('touchend', go, { passive: false });
+}
+bindStart(document.getElementById('startBtn'));
+bindStart(document.getElementById('againBtn'));
+bindStart(startPanel);
+bindStart(winPanel);
 
 function startGame() {
   cpReached.clear();
