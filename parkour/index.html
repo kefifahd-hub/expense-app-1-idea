@@ -161,6 +161,8 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.domElement.tabIndex = 0;              // focusable, so it can hold keyboard focus
+renderer.domElement.style.outline = 'none';
 app.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -461,8 +463,9 @@ const localPos = new THREE.Vector3();
 const closest = new THREE.Vector3();
 const normalWorld = new THREE.Vector3();
 
+// NOTE: does NOT reset `grounded` — the caller clears it once per frame so
+// that ground contact found in ANY collision sub-step keeps us grounded.
 function resolveCollisions() {
-  grounded = false;
   let groundCollider = null;
   for (const c of colliders) {
     // sphere center into box local space
@@ -560,6 +563,11 @@ function startGame() {
   startTime = performance.now();
   startPanel.classList.add('hidden');
   winPanel.classList.add('hidden');
+  // Drop keyboard focus from the Play button — otherwise pressing Space
+  // re-activates the (now hidden) focused button and restarts the game,
+  // which looked like "Space doesn't jump" on desktop.
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  if (renderer.domElement.focus) renderer.domElement.focus();
 }
 
 function win() {
@@ -614,7 +622,9 @@ function step(dt) {
     jumpBuffer = 0;
   }
 
-  // integrate (sub-stepped so fast falls don't tunnel through thin paper)
+  // integrate (sub-stepped so fast falls don't tunnel through thin paper).
+  // Clear grounded once here; any sub-step that touches ground re-sets it.
+  grounded = false;
   const steps = 3;
   const sdt = dt / steps;
   for (let i = 0; i < steps; i++) {
@@ -682,7 +692,8 @@ camera.position.set(0, 8, -12);
 camera.lookAt(0, 1, 0);
 
 // debug hook (used for automated screenshots; harmless in normal play)
-window.__game = { THREE, scene, camera, renderer, ball, goalPos, start: startGame };
+window.__game = { THREE, scene, camera, renderer, ball, goalPos, start: startGame,
+  jump: requestJump, state: () => ({ jumpBuffer, coyote, grounded, vy: vel.y, running }) };
 </script>
 </body>
 </html>
