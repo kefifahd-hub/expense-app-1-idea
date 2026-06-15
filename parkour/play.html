@@ -257,8 +257,9 @@ function loopArch(x, y, z, radius, tube, color, rotY = 0, rotZ = 0) {
   scene.add(m);
 }
 
-// Decorative rolled-paper curl (open cylinder)
-function curl(x, y, z, radius, height, color, rotX = 0, rotZ = 0) {
+// Decorative rolled-paper curl (open cylinder). Solid by default so the ball
+// can't pass through it — approximated by an inscribed box collider.
+function curl(x, y, z, radius, height, color, rotX = 0, rotZ = 0, solid = true) {
   const m = new THREE.Mesh(
     new THREE.CylinderGeometry(radius, radius, height, 24, 1, true),
     new THREE.MeshStandardMaterial({ color, roughness: 0.7, side: THREE.DoubleSide })
@@ -267,6 +268,18 @@ function curl(x, y, z, radius, height, color, rotX = 0, rotZ = 0) {
   m.rotation.set(rotX, 0, rotZ);
   m.castShadow = true;
   scene.add(m);
+
+  if (solid) {
+    const s = radius * 1.25;          // square cross-section that stays inside the tube
+    const quat = new THREE.Quaternion().setFromEuler(new THREE.Euler(rotX, 0, rotZ));
+    colliders.push({
+      center: new THREE.Vector3(x, y, z),
+      half: new THREE.Vector3(s / 2, height / 2, s / 2),
+      quat,
+      invQuat: quat.clone().invert(),
+      checkpoint: false,
+    });
+  }
 }
 
 // ==================================================================
@@ -297,8 +310,8 @@ for (let i = 0; i < HN; i++) {
   hy += 0.62;
 }
 
-// Central rolled-paper column the helix winds around
-curl(0, hy / 2, 0, 1.2, hy + 1.5, C.brown);
+// Central rolled-paper column the helix winds around (solid core)
+curl(0, hy / 2, 0, 1.2, hy, C.brown);
 
 // 3) Paper rings (loop arches) threaded around the tower at a few heights
 loopArch(0, 1.9, 6.0, 2.6, 0.26, C.red, 0, Math.PI / 2);
@@ -444,6 +457,7 @@ function pressJump(e) { if (e) e.preventDefault(); requestJump(); }
 jumpBtn.addEventListener('touchstart', pressJump, { passive: false });
 jumpBtn.addEventListener('pointerdown', pressJump);
 jumpBtn.addEventListener('mousedown', pressJump);
+jumpBtn.addEventListener('click', pressJump);
 
 // ------------------------------------------------------------------
 // Physics
@@ -590,7 +604,9 @@ const spin = new THREE.Vector3();
 function step(dt) {
   // --- desired horizontal move direction, relative to camera ---
   camForward.set(Math.sin(camYaw), 0, Math.cos(camYaw)).normalize();
-  camRight.crossVectors(camForward, up).normalize().multiplyScalar(-1);
+  // screen-right when looking down the course: forward × up (no sign flip,
+  // the previous -1 inverted A/D)
+  camRight.crossVectors(camForward, up).normalize();
 
   let ix = 0, iz = 0;
   if (keys['w'] || keys['arrowup']) iz += 1;
